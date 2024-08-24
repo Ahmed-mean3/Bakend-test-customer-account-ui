@@ -53,8 +53,12 @@ app.post("/add-discount-code", async (req, res) => {
 
 app.post("/add-price-rule", async (req, res) => {
   try {
-    const { price_rule } = req.body;
-
+    const { price_rule, discount_code } = req.body;
+    const discountCodeData = {
+      discount_code: {
+        code: discount_code, // The code for the discount (e.g., "SUMMERSALE")
+      },
+    };
     // Define required fields
     const requiredFields = [
       "title",
@@ -109,11 +113,32 @@ app.post("/add-price-rule", async (req, res) => {
       },
     });
 
-    console.log("Price rule created:", response.data);
-    res.status(201).json({ price_rule: response.data.price_rule });
+    console.log("Price rule created:", response.data.price_rule.id);
+
+    const discountCodesUrl = `https://${process.env.SHOP_NAME}.myshopify.com/admin/api/2024-07/price_rules/${response.data.price_rule.id}/discount_codes.json`;
+
+    const response_add_discount = await axios.post(
+      discountCodesUrl,
+      discountCodeData,
+      {
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Basic ${Buffer.from(
+            `${process.env.API_KEY}:${process.env.API_PASSWORD}`
+          ).toString("base64")}`,
+        },
+      }
+    );
+
+    console.log("Discount code created:", response_add_discount.data);
+    res
+      .status(201)
+      .json({ discount_code: response_add_discount.data.discount_code });
+
+    // res.status(201).json({ price_rule: response_add_discount.data.price_rule });
   } catch (error) {
-    console.error("Error creating price rule:", error.message);
-    res.status(500).json({ message: "Failed to create price rule" });
+    console.error("Error creating discount code:", error.message);
+    res.status(500).json({ message: "Failed to create discount code" });
   }
 });
 
