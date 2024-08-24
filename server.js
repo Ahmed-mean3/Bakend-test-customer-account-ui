@@ -16,64 +16,56 @@ app.get("/", (req, res) => {
 
 app.post("/add-discount-code", async (req, res) => {
   try {
-    const { price_rule_id, discount_code } = req.body;
+    const { discount_type, price_rule, discount_code } = req.body;
 
-    // Check if both price_rule_id and discount_code are provided
-    if (!price_rule_id || !discount_code) {
-      return res.status(400).json({
-        message:
-          "Validation Error: price_rule_id and discount_code are required",
-      });
+    // Define required fields based on discount type
+    let requiredFields;
+    switch (discount_type) {
+      case "product":
+        requiredFields = [
+          "title",
+          "value_type",
+          "value",
+          "customer_selection",
+          "target_type",
+          "target_selection",
+          "allocation_method",
+          "starts_at",
+          "entitled_product_ids",
+        ];
+        break;
+      case "order":
+        requiredFields = [
+          "title",
+          "value_type",
+          "value",
+          "customer_selection",
+          "target_type",
+          "target_selection",
+          "allocation_method",
+          "starts_at",
+          "prerequisite_subtotal_range",
+        ];
+        break;
+      case "shipping":
+        requiredFields = [
+          "title",
+          "value_type",
+          "value",
+          "customer_selection",
+          "target_type",
+          "target_selection",
+          "allocation_method",
+          "starts_at",
+          "prerequisite_shipping_price_range",
+        ];
+        break;
+      default:
+        return res.status(400).json({ message: "Invalid discount type" });
     }
-
-    const discountCodeData = {
-      discount_code: {
-        code: discount_code, // The code for the discount (e.g., "SUMMERSALE")
-      },
-    };
-
-    const discountCodesUrl = `https://${process.env.SHOP_NAME}.myshopify.com/admin/api/2024-07/price_rules/${price_rule_id}/discount_codes.json`;
-
-    const response = await axios.post(discountCodesUrl, discountCodeData, {
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Basic ${Buffer.from(
-          `${process.env.API_KEY}:${process.env.API_PASSWORD}`
-        ).toString("base64")}`,
-      },
-    });
-
-    console.log("Discount code created:", response.data);
-    res.status(201).json({ discount_code: response.data.discount_code });
-  } catch (error) {
-    console.error("Error creating discount code:", error.message);
-    res.status(500).json({ message: "Failed to create discount code" });
-  }
-});
-
-app.post("/add-price-rule", async (req, res) => {
-  try {
-    const { price_rule, discount_code } = req.body;
-    const discountCodeData = {
-      discount_code: {
-        code: discount_code, // The code for the discount (e.g., "SUMMERSALE")
-      },
-    };
-    // Define required fields
-    const requiredFields = [
-      "title",
-      "value_type",
-      "value",
-      "customer_selection",
-      "target_type",
-      "target_selection",
-      "allocation_method",
-      "starts_at",
-    ];
 
     // Check for missing fields
     const missingFields = requiredFields.filter((field) => !price_rule[field]);
-
     if (missingFields.length > 0) {
       return res.status(400).json({
         message: "Validation Error: Missing required fields",
@@ -81,7 +73,7 @@ app.post("/add-price-rule", async (req, res) => {
       });
     }
 
-    // Construct the price rule data with optional fields
+    // Construct the price rule data
     const priceRuleData = {
       price_rule: {
         title: price_rule.title,
@@ -92,18 +84,24 @@ app.post("/add-price-rule", async (req, res) => {
         target_selection: price_rule.target_selection,
         allocation_method: price_rule.allocation_method,
         starts_at: price_rule.starts_at,
-        ends_at: price_rule.ends_at || undefined, // optional
-        prerequisite_collection_ids:
-          price_rule.prerequisite_collection_ids || [], // optional
-        entitled_product_ids: price_rule.entitled_product_ids || [], // optional
-        prerequisite_to_entitlement_quantity_ratio:
-          price_rule.prerequisite_to_entitlement_quantity_ratio || undefined, // optional
-        allocation_limit: price_rule.allocation_limit || undefined, // optional
+        ends_at: price_rule.ends_at || undefined,
+        ...(discount_type === "product" && {
+          entitled_product_ids: price_rule.entitled_product_ids || [],
+        }),
+        ...(discount_type === "order" && {
+          prerequisite_subtotal_range:
+            price_rule.prerequisite_subtotal_range || undefined,
+        }),
+        ...(discount_type === "shipping" && {
+          prerequisite_shipping_price_range:
+            price_rule.prerequisite_shipping_price_range || undefined,
+        }),
+        allocation_limit: price_rule.allocation_limit || undefined,
       },
     };
 
+    // Create the price rule
     const priceRulesUrl = `https://${process.env.SHOP_NAME}.myshopify.com/admin/api/2024-07/price_rules.json`;
-
     const response = await axios.post(priceRulesUrl, priceRuleData, {
       headers: {
         "Content-Type": "application/json",
@@ -115,7 +113,13 @@ app.post("/add-price-rule", async (req, res) => {
 
     console.log("Price rule created:", response.data.price_rule.id);
 
+    // Create the discount code
     const discountCodesUrl = `https://${process.env.SHOP_NAME}.myshopify.com/admin/api/2024-07/price_rules/${response.data.price_rule.id}/discount_codes.json`;
+    const discountCodeData = {
+      discount_code: {
+        code: discount_code,
+      },
+    };
 
     const response_add_discount = await axios.post(
       discountCodesUrl,
@@ -134,11 +138,17 @@ app.post("/add-price-rule", async (req, res) => {
     res
       .status(201)
       .json({ discount_code: response_add_discount.data.discount_code });
-
-    // res.status(201).json({ price_rule: response_add_discount.data.price_rule });
   } catch (error) {
-    console.error("Error creating discount code:", error.message);
-    res.status(500).json({ message: "Failed to create discount code" });
+    let errorMessage = "An unexpected error occurred";
+    if (error.response && error.response.data && error.response.data.errors) {
+      // Extract and format dynamic errors
+      errorMessage = Object.entries(error.response.data.errors)
+        .map(([key, messages]) => `${key}: ${messages}`)
+        .join("\n");
+    }
+    res.status(500).json({
+      message: `Failed to create discount code.${errorMessage}`,
+    });
   }
 });
 
