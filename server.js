@@ -2,22 +2,44 @@ const express = require("express");
 const cors = require("cors");
 const axios = require("axios");
 const dotenv = require("dotenv");
+const authMiddleware = require("./middleware/middleware_one");
+const sendResponse = require("./Helper/Helper_one");
 dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 4000;
+const route = express.Router();
 
 app.use(cors());
 app.use(express.json());
 
 app.get("/", (req, res) => {
-  res.send("Server Started");
+  res.send("Server Started for test cutomer account ui backend.");
 });
 
-app.post("/add-discount-code", async (req, res) => {
-  try {
-    const { discount_type, price_rule, discount_code } = req.body;
+route.use(authMiddleware);
 
+app.post("/add-discount-code", authMiddleware, async (req, res) => {
+  try {
+    const getShopName = req.headers["shop-name"];
+    const getApiKey = req.headers["shopify-api-key"];
+    const getApiToken = req.headers["shopify-api-token"];
+    const { discount_type, price_rule, discount_code } = req.body;
+    if (!getShopName) {
+      return res
+        .status(400)
+        .send(sendResponse(false, null, "Missing shopify Store/Shop name"));
+    }
+    if (!getApiKey) {
+      return res
+        .status(400)
+        .send(sendResponse(false, null, "Missing shopify api key"));
+    }
+    if (!getApiToken) {
+      return res
+        .status(400)
+        .send(sendResponse(false, null, "Missing shopify api token"));
+    }
     // Define required fields based on discount type
     let requiredFields;
     switch (discount_type) {
@@ -137,6 +159,15 @@ app.post("/add-discount-code", async (req, res) => {
     console.log("Discount code created:", response_add_discount.data);
     res
       .status(201)
+      .send(
+        sendResponse(
+          true,
+          response_add_discount.data.discount_code,
+          "Discount Code Created Successfully"
+        )
+      );
+    res
+      .status(201)
       .json({ discount_code: response_add_discount.data.discount_code });
   } catch (error) {
     let errorMessage = "An unexpected error occurred";
@@ -146,14 +177,39 @@ app.post("/add-discount-code", async (req, res) => {
         .map(([key, messages]) => `${key}: ${messages}`)
         .join("\n");
     }
-    res.status(500).json({
-      message: `Failed to create discount code.${errorMessage}`,
-    });
+    res
+      .status(500)
+      .send(
+        sendResponse(
+          false,
+          null,
+          `Failed to create discount code.${errorMessage}`
+        )
+      );
   }
 });
 
-app.get("/get-discounts", async (req, res) => {
+app.get("/get-discounts", authMiddleware, async (req, res) => {
   try {
+    const getShopName = req.headers["shop-name"];
+    const getApiKey = req.headers["shopify-api-key"];
+    const getApiToken = req.headers["shopify-api-token"];
+    if (!getShopName) {
+      return res
+        .status(400)
+        .send(sendResponse(false, null, "Missing shopify Store/Shop name"));
+    }
+    if (!getApiKey) {
+      return res
+        .status(400)
+        .send(sendResponse(false, null, "Missing shopify api key"));
+    }
+    if (!getApiToken) {
+      return res
+        .status(400)
+        .send(sendResponse(false, null, "Missing shopify api token"));
+    }
+    // const credentials = req.headers.
     //shop name i.e store-for-customer-account-test
     // const { price_rules } = req.body;
     let allDiscounts = [];
@@ -181,11 +237,29 @@ app.get("/get-discounts", async (req, res) => {
       console.log("data retreival", response.data);
       allDiscounts = [...allDiscounts, ...response.data.discount_codes];
     }
-    res.status(200).json({ discounts: allDiscounts });
+    res
+      .status(200)
+      .send(
+        sendResponse(true, allDiscounts, "Discounts Retrieved Successfully")
+      );
   } catch (error) {
-    console.error("Error fetching discounts:", error.message);
-    res.status(500).json({ message: "Failed to fetch discounts data" });
+    console.log("->>>>>>>>>>>>>>>>>>>>", error);
+    res
+      .status(500)
+      .send(
+        sendResponse(
+          false,
+          null,
+          "Might be Internal Server error, failed to get dicount codes.",
+          error.message
+        )
+      );
   }
+});
+
+// Make sure to include this route to handle other routes
+app.get("*", (req, res) => {
+  res.status(404).send("Route Not Found");
 });
 
 app.listen(PORT, () => {
