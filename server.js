@@ -2,6 +2,8 @@ const express = require("express");
 const cors = require("cors");
 const axios = require("axios");
 const dotenv = require("dotenv");
+const morgan = require("morgan");
+const apicache = require("apicache");
 const authMiddleware = require("./middleware/middleware_one");
 const sendResponse = require("./Helper/Helper_one");
 dotenv.config();
@@ -9,9 +11,15 @@ dotenv.config();
 const app = express();
 const PORT = process.env.PORT || 4000;
 const route = express.Router();
+app.use(morgan("dev"));
 
+//configure apicache
+let cache = apicache.middleware;
+
+//caching all routes for 5 minutes
 app.use(cors());
 app.use(express.json());
+app.use(cache("3 minutes"));
 
 app.get("/", (req, res) => {
   res.send("Server Started for test cutomer account ui backend.");
@@ -142,7 +150,7 @@ app.post("/add-discount-code", authMiddleware, async (req, res) => {
     const discountCodesUrl = `https://${process.env.SHOP_NAME}.myshopify.com/admin/api/2024-07/price_rules/${response.data.price_rule.id}/discount_codes.json`;
     const discountCodeData = {
       discount_code: {
-        code: discount_code,
+        code: discount_code + "_CC",
       },
     };
 
@@ -197,23 +205,20 @@ app.get("/get-discounts", authMiddleware, async (req, res) => {
     if (!getShopName) {
       return res
         .status(400)
-        .send(sendResponse(false, null, "Missing shopify Store/Shop name"));
+        .send(sendResponse(false, null, "Missing Shopify Store/Shop name"));
     }
     if (!getApiKey) {
       return res
         .status(400)
-        .send(sendResponse(false, null, "Missing shopify api key"));
+        .send(sendResponse(false, null, "Missing Shopify API key"));
     }
     if (!getApiToken) {
       return res
         .status(400)
-        .send(sendResponse(false, null, "Missing shopify api token"));
+        .send(sendResponse(false, null, "Missing Shopify API token"));
     }
-    // const credentials = req.headers.
-    //shop name i.e store-for-customer-account-test
-    // const { price_rules } = req.body;
-    let allDiscounts = [];
-    const priceRulesUrl = `https://${process.env.SHOP_NAME}.myshopify.com/admin/api/2024-07/price_rules.json`;
+
+    const priceRulesUrl = `https://${process.env.SHOP_NAME}.myshopify.com/admin/api/2024-07/price_rules.json?fields=id,title`;
     const priceRulesResponse = await axios.get(priceRulesUrl, {
       headers: {
         "Content-Type": "application/json",
@@ -222,25 +227,44 @@ app.get("/get-discounts", authMiddleware, async (req, res) => {
         ).toString("base64")}`,
       },
     });
-    console.log("all price rules retreival", priceRulesResponse.data);
-    const priceRules = priceRulesResponse.data.price_rules;
-    for (const rule of priceRules) {
-      const apiUrl = `https://${process.env.SHOP_NAME}.myshopify.com/admin/api/2024-07/price_rules/${rule.id}/discount_codes.json`;
-      const response = await axios.get(apiUrl, {
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Basic ${Buffer.from(
-            `${process.env.API_KEY}:${process.env.API_PASSWORD}`
-          ).toString("base64")}`,
-        },
-      });
-      console.log("data retreival", response.data);
-      allDiscounts = [...allDiscounts, ...response.data.discount_codes];
-    }
+
+    const priceRuleIds = priceRulesResponse.data.price_rules.map(
+      (rule) => rule.id
+    );
+
+    // Fetch all discount codes for all price rules in one request
+    const allDiscountPromises = priceRuleIds.map((id) =>
+      axios.get(
+        `https://${process.env.SHOP_NAME}.myshopify.com/admin/api/2024-07/price_rules/${id}/discount_codes.json`,
+        {
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Basic ${Buffer.from(
+              `${process.env.API_KEY}:${process.env.API_PASSWORD}`
+            ).toString("base64")}`,
+          },
+        }
+      )
+    );
+
+    // Wait for all requests to finish
+    const allDiscountResponses = await Promise.all(allDiscountPromises);
+
+    // Combine and filter discount codes in a single step
+    const filteredDiscounts = allDiscountResponses.flatMap((response) =>
+      response.data.discount_codes.filter((discount) =>
+        discount.code.endsWith("_CC")
+      )
+    );
+
     res
       .status(200)
       .send(
-        sendResponse(true, allDiscounts, "Discounts Retrieved Successfully")
+        sendResponse(
+          true,
+          filteredDiscounts,
+          "Discounts Retrieved Successfully"
+        )
       );
   } catch (error) {
     console.log("->>>>>>>>>>>>>>>>>>>>", error);
@@ -250,7 +274,7 @@ app.get("/get-discounts", authMiddleware, async (req, res) => {
         sendResponse(
           false,
           null,
-          "Might be Internal Server error, failed to get dicount codes.",
+          "Might be Internal Server error, failed to get discount codes.",
           error.message
         )
       );
