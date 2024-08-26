@@ -109,6 +109,9 @@ app.post("/add-discount-code", authMiddleware, async (req, res) => {
         ends_at: price_rule.ends_at || undefined,
         ...(discount_type === "product" && {
           entitled_product_ids: price_rule.entitled_product_ids || [],
+          prerequisite_product_ids: price_rule.prerequisite_product_ids || [],
+          prerequisite_to_entitlement_quantity_ratio:
+            price_rule.prerequisite_to_entitlement_quantity_ratio || [],
         }),
         ...(discount_type === "order" && {
           prerequisite_subtotal_range:
@@ -166,9 +169,6 @@ app.post("/add-discount-code", authMiddleware, async (req, res) => {
           "Discount Code Created Successfully"
         )
       );
-    res
-      .status(201)
-      .json({ discount_code: response_add_discount.data.discount_code });
   } catch (error) {
     let errorMessage = "An unexpected error occurred";
     if (error.response && error.response.data && error.response.data.errors) {
@@ -256,6 +256,8 @@ app.get("/get-discounts", authMiddleware, async (req, res) => {
       );
   }
 });
+
+//get single discount route
 
 // Make sure to include this route to handle other routes
 app.get("*", (req, res) => {
