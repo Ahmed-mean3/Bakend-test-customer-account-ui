@@ -106,7 +106,7 @@ app.post("/add-discount-code", authMiddleware, async (req, res) => {
     // Construct the price rule data
     const priceRuleData = {
       price_rule: {
-        title: price_rule.title,
+        title: "CC_" + price_rule.title,
         value_type: price_rule.value_type,
         value: price_rule.value,
         customer_selection: price_rule.customer_selection,
@@ -118,9 +118,14 @@ app.post("/add-discount-code", authMiddleware, async (req, res) => {
         ...(discount_type === "product" && {
           entitled_product_ids: price_rule.entitled_product_ids || [],
           prerequisite_product_ids: price_rule.prerequisite_product_ids || [],
-          prerequisite_to_entitlement_quantity_ratio:
-            price_rule.prerequisite_to_entitlement_quantity_ratio || [],
         }),
+        ...(price_rule.hasOwnProperty(
+          "prerequisite_to_entitlement_quantity_ratio"
+        ) &&
+          price_rule.prerequisite_to_entitlement_quantity_ratio && {
+            prerequisite_to_entitlement_quantity_ratio:
+              price_rule.prerequisite_to_entitlement_quantity_ratio,
+          }),
         ...(discount_type === "order" && {
           prerequisite_subtotal_range:
             price_rule.prerequisite_subtotal_range || undefined,
@@ -150,7 +155,7 @@ app.post("/add-discount-code", authMiddleware, async (req, res) => {
     const discountCodesUrl = `https://${process.env.SHOP_NAME}.myshopify.com/admin/api/2024-07/price_rules/${response.data.price_rule.id}/discount_codes.json`;
     const discountCodeData = {
       discount_code: {
-        code: discount_code + "_CC",
+        code: "CC_" + discount_code,
       },
     };
 
@@ -178,6 +183,7 @@ app.post("/add-discount-code", authMiddleware, async (req, res) => {
         )
       );
   } catch (error) {
+    console.log("error", error);
     let errorMessage = "An unexpected error occurred";
     if (error.response && error.response.data && error.response.data.errors) {
       // Extract and format dynamic errors
@@ -228,8 +234,17 @@ app.get("/get-discounts", authMiddleware, async (req, res) => {
       },
     });
 
-    const priceRuleIds = priceRulesResponse.data.price_rules.map(
-      (rule) => rule.id
+    // const priceRuleIds = priceRulesResponse.data.price_rules.map(
+    //   (rule) => rule.id
+    // );
+    const priceRuleIds = priceRulesResponse.data.price_rules.reduce(
+      (acc, rule) => {
+        if (rule.title.startsWith("CC_")) {
+          acc.push(rule.id);
+        }
+        return acc;
+      },
+      []
     );
 
     // Fetch all discount codes for all price rules in one request
@@ -251,12 +266,13 @@ app.get("/get-discounts", authMiddleware, async (req, res) => {
     const allDiscountResponses = await Promise.all(allDiscountPromises);
 
     // Combine and filter discount codes in a single step
-    const filteredDiscounts = allDiscountResponses.flatMap((response) =>
-      response.data.discount_codes.filter((discount) =>
-        discount.code.endsWith("_CC")
-      )
+    const filteredDiscounts = allDiscountResponses.flatMap(
+      (response) => response.data.discount_codes
     );
-
+    console.log(
+      "discounts->>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>",
+      filteredDiscounts
+    );
     res
       .status(200)
       .send(
