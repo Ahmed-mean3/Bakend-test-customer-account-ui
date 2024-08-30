@@ -4,26 +4,217 @@ const axios = require("axios");
 const dotenv = require("dotenv");
 const morgan = require("morgan");
 const apicache = require("apicache");
-const authMiddleware = require("./middleware/middleware_one");
-const sendResponse = require("./Helper/Helper_one");
+
 dotenv.config();
 
+var ResponseObj = {
+  status: null,
+  data: null,
+  message: "",
+  error: "",
+  page: null,
+  limit: null,
+};
+
+const sendResponse = (status, data, message, error, page, limit) => {
+  ResponseObj.status = status;
+  ResponseObj.data = data;
+  ResponseObj.message = message;
+  ResponseObj.error = error;
+  ResponseObj.page = page;
+  ResponseObj.limit = limit;
+  return ResponseObj;
+};
+
+const authMiddleware = (req, res, next) => {
+  // Check for the presence of API access key in headers
+  const apiKey = req.headers["api-key"];
+  console.log("matchup", apiKey === process.env.SECURE_KEY);
+  if (apiKey !== process.env.SECURE_KEY) {
+    return res
+      .status(401)
+      .send(sendResponse(false, null, "API access key is missing"));
+  }
+  next();
+};
 const app = express();
 const PORT = process.env.PORT || 4000;
 const route = express.Router();
-app.use(morgan("dev"));
+// app.use(morgan("dev"));
 
 //configure apicache
 let cache = apicache.middleware;
 
 //caching all routes for 5 minutes
-app.use(cors());
 app.use(express.json());
+app.use(cors());
 
 app.get("/", (req, res) => {
   res.send("Server Started for test cutomer account ui backend.");
 });
+// Make sure to include this route to handle other routes
+app.get("*", (req, res) => {
+  res.status(404).send("Route Not Found");
+});
+app.get("/get-price_rule/:id", authMiddleware, async (req, res) => {
+  try {
+    const getShopName = req.headers["shop-name"];
+    const getApiKey = req.headers["shopify-api-key"];
+    const getApiToken = req.headers["shopify-api-token"];
+    const priceRuleId = req.params.id;
 
+    if (!getShopName) {
+      return res
+        .status(400)
+        .send(sendResponse(false, null, "Missing Shopify Store/Shop name"));
+    }
+    if (!getApiKey) {
+      return res
+        .status(400)
+        .send(sendResponse(false, null, "Missing Shopify API key"));
+    }
+    if (!getApiToken) {
+      return res
+        .status(400)
+        .send(sendResponse(false, null, "Missing Shopify API token"));
+    }
+    if (!priceRuleId) {
+      return res
+        .status(400)
+        .send(
+          sendResponse(
+            false,
+            null,
+            "Missing Price Rule Id in the Parameters of the Request}"
+          )
+        );
+    }
+
+    // const priceRulesUrl = `https://${getShopName}.myshopify.com/admin/api/2024-07/price_rules/${priceRuleId}`;
+    const priceRulesUrl = `https://${getApiKey}:${getApiToken}@${getShopName}.myshopify.com/admin/api/2024-07/price_rules.json?id=${priceRuleId}`;
+    const priceRulesResponse = await axios.get(priceRulesUrl, {
+      headers: {
+        "Content-Type": "application/json",
+      },
+    });
+
+    console.log("Price rule retrieved:", priceRulesResponse.data);
+    res
+      .status(200)
+      .send(
+        sendResponse(
+          true,
+          priceRulesResponse.data,
+          "Price rule Retrieved Successfully"
+        )
+      );
+  } catch (error) {
+    res
+      .status(500)
+      .send(
+        sendResponse(
+          false,
+          null,
+          "Might be Internal Server error, failed to get price rules",
+          error.message
+        )
+      );
+  }
+});
+
+app.get("/get-discounts", authMiddleware, async (req, res) => {
+  try {
+    const getShopName = req.headers["shop-name"];
+    const getApiKey = req.headers["shopify-api-key"];
+    const getApiToken = req.headers["shopify-api-token"];
+    if (!getShopName) {
+      return res
+        .status(400)
+        .send(sendResponse(false, null, "Missing Shopify Store/Shop name"));
+    }
+    if (!getApiKey) {
+      return res
+        .status(400)
+        .send(sendResponse(false, null, "Missing Shopify API key"));
+    }
+    if (!getApiToken) {
+      return res
+        .status(400)
+        .send(sendResponse(false, null, "Missing Shopify API token"));
+    }
+
+    const priceRulesUrl = `https://${getShopName}.myshopify.com/admin/api/2024-07/price_rules.json?fields=id,title`;
+    const priceRulesResponse = await axios.get(priceRulesUrl, {
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Basic ${Buffer.from(
+          `${getApiKey}:${getApiToken}`
+        ).toString("base64")}`,
+      },
+    });
+
+    // const priceRuleIds = priceRulesResponse.data.price_rules.map(
+    //   (rule) => rule.id
+    // );
+    const priceRuleIds = priceRulesResponse.data.price_rules.reduce(
+      (acc, rule) => {
+        if (rule.title.startsWith("CC_")) {
+          acc.push(rule.id);
+        }
+        return acc;
+      },
+      []
+    );
+
+    // Fetch all discount codes for all price rules in one request
+    const allDiscountPromises = priceRuleIds.map((id) =>
+      axios.get(
+        `https://${getShopName}.myshopify.com/admin/api/2024-07/price_rules/${id}/discount_codes.json`,
+        {
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Basic ${Buffer.from(
+              `${getApiKey}:${getApiToken}`
+            ).toString("base64")}`,
+          },
+        }
+      )
+    );
+
+    // Wait for all requests to finish
+    const allDiscountResponses = await Promise.all(allDiscountPromises);
+
+    // Combine and filter discount codes in a single step
+    const filteredDiscounts = allDiscountResponses.flatMap(
+      (response) => response.data.discount_codes
+    );
+    console.log(
+      "discounts->>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>",
+      filteredDiscounts
+    );
+    res
+      .status(200)
+      .send(
+        sendResponse(
+          true,
+          filteredDiscounts,
+          "Discounts Retrieved Successfully"
+        )
+      );
+  } catch (error) {
+    console.log("->>>>>>>>>>>>>>>>>>>>", error);
+    res
+      .status(500)
+      .send(
+        sendResponse(
+          false,
+          null,
+          "Might be Internal Server error, failed to get discount codes.",
+          error.message
+        )
+      );
+  }
+});
 app.post("/add-discount-code", authMiddleware, async (req, res) => {
   try {
     const getShopName = req.headers["shop-name"];
@@ -201,172 +392,6 @@ app.post("/add-discount-code", authMiddleware, async (req, res) => {
       );
   }
 });
-
-app.get("/get-price_rule/:id", authMiddleware, async (req, res) => {
-  try {
-    const getShopName = req.headers["shop-name"];
-    const getApiKey = req.headers["shopify-api-key"];
-    const getApiToken = req.headers["shopify-api-token"];
-    const priceRuleId = req.params.id;
-
-    if (!getShopName) {
-      return res
-        .status(400)
-        .send(sendResponse(false, null, "Missing Shopify Store/Shop name"));
-    }
-    if (!getApiKey) {
-      return res
-        .status(400)
-        .send(sendResponse(false, null, "Missing Shopify API key"));
-    }
-    if (!getApiToken) {
-      return res
-        .status(400)
-        .send(sendResponse(false, null, "Missing Shopify API token"));
-    }
-    if (!priceRuleId) {
-      return res
-        .status(400)
-        .send(
-          sendResponse(
-            false,
-            null,
-            "Missing Price Rule Id in the Parameters of the Request}"
-          )
-        );
-    }
-
-    // const priceRulesUrl = `https://${getShopName}.myshopify.com/admin/api/2024-07/price_rules/${priceRuleId}`;
-    const priceRulesUrl = `https://${getApiKey}:${getApiToken}@${getShopName}.myshopify.com/admin/api/2024-07/price_rules.json?id=${priceRuleId}`;
-    const priceRulesResponse = await axios.get(priceRulesUrl, {
-      headers: {
-        "Content-Type": "application/json",
-      },
-    });
-
-    console.log("Price rule retrieved:", priceRulesResponse.data);
-    res
-      .status(200)
-      .send(
-        sendResponse(
-          true,
-          priceRulesResponse.data,
-          "Price rule Retrieved Successfully"
-        )
-      );
-  } catch (error) {
-    res
-      .status(500)
-      .send(
-        sendResponse(
-          false,
-          null,
-          "Might be Internal Server error, failed to get price rules",
-          error.message
-        )
-      );
-  }
-});
-
-app.get("/get-discounts", authMiddleware, async (req, res) => {
-  try {
-    const getShopName = req.headers["shop-name"];
-    const getApiKey = req.headers["shopify-api-key"];
-    const getApiToken = req.headers["shopify-api-token"];
-    if (!getShopName) {
-      return res
-        .status(400)
-        .send(sendResponse(false, null, "Missing Shopify Store/Shop name"));
-    }
-    if (!getApiKey) {
-      return res
-        .status(400)
-        .send(sendResponse(false, null, "Missing Shopify API key"));
-    }
-    if (!getApiToken) {
-      return res
-        .status(400)
-        .send(sendResponse(false, null, "Missing Shopify API token"));
-    }
-
-    const priceRulesUrl = `https://${getShopName}.myshopify.com/admin/api/2024-07/price_rules.json?fields=id,title`;
-    const priceRulesResponse = await axios.get(priceRulesUrl, {
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Basic ${Buffer.from(
-          `${getApiKey}:${getApiToken}`
-        ).toString("base64")}`,
-      },
-    });
-
-    // const priceRuleIds = priceRulesResponse.data.price_rules.map(
-    //   (rule) => rule.id
-    // );
-    const priceRuleIds = priceRulesResponse.data.price_rules.reduce(
-      (acc, rule) => {
-        if (rule.title.startsWith("CC_")) {
-          acc.push(rule.id);
-        }
-        return acc;
-      },
-      []
-    );
-
-    // Fetch all discount codes for all price rules in one request
-    const allDiscountPromises = priceRuleIds.map((id) =>
-      axios.get(
-        `https://${getShopName}.myshopify.com/admin/api/2024-07/price_rules/${id}/discount_codes.json`,
-        {
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Basic ${Buffer.from(
-              `${getApiKey}:${getApiToken}`
-            ).toString("base64")}`,
-          },
-        }
-      )
-    );
-
-    // Wait for all requests to finish
-    const allDiscountResponses = await Promise.all(allDiscountPromises);
-
-    // Combine and filter discount codes in a single step
-    const filteredDiscounts = allDiscountResponses.flatMap(
-      (response) => response.data.discount_codes
-    );
-    console.log(
-      "discounts->>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>",
-      filteredDiscounts
-    );
-    res
-      .status(200)
-      .send(
-        sendResponse(
-          true,
-          filteredDiscounts,
-          "Discounts Retrieved Successfully"
-        )
-      );
-  } catch (error) {
-    console.log("->>>>>>>>>>>>>>>>>>>>", error);
-    res
-      .status(500)
-      .send(
-        sendResponse(
-          false,
-          null,
-          "Might be Internal Server error, failed to get discount codes.",
-          error.message
-        )
-      );
-  }
-});
-
-// Make sure to include this route to handle other routes
-app.get("*", (req, res) => {
-  res.status(404).send("Route Not Found");
-});
-
 app.listen(PORT, () => {
   console.log(`Testing shop Middleware server running on port ${PORT}`);
 });
