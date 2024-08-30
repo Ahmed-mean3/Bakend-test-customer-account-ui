@@ -5,6 +5,7 @@ dotenv.config();
 const authMiddleware = (req, res, next) => {
   // Check for the presence of API access key in headers
   const apiKey = req.headers["api-key"];
+  console.log("matchup", apiKey === process.env.SECURE_KEY);
   if (apiKey !== process.env.SECURE_KEY) {
     return res
       .status(401)
