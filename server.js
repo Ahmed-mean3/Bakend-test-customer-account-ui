@@ -2,8 +2,8 @@ const express = require("express");
 const cors = require("cors");
 const axios = require("axios");
 const dotenv = require("dotenv");
-const morgan = require("morgan");
-const apicache = require("apicache");
+// const morgan = require("morgan");
+// const apicache = require("apicache");
 
 dotenv.config();
 
@@ -43,7 +43,7 @@ const route = express.Router();
 // app.use(morgan("dev"));
 
 //configure apicache
-let cache = apicache.middleware;
+// let cache = apicache.middleware;
 
 //caching all routes for 5 minutes
 app.use(express.json());
@@ -56,71 +56,7 @@ app.get("/", (req, res) => {
 // app.get("*", (req, res) => {
 //   res.status(404).send("Route Not Found");
 // });
-app.get("/get-price_rule/:id", authMiddleware, async (req, res) => {
-  try {
-    // const getShopName = req.headers["shop-name"];
-    // const getApiKey = req.headers["shopify-api-key"];
-    // const getApiToken = req.headers["shopify-api-token"];
-    const priceRuleId = req.params.id;
 
-    // if (!getShopName) {
-    //   return res
-    //     .status(400)
-    //     .send(sendResponse(false, null, "Missing Shopify Store/Shop name"));
-    // }
-    // if (!getApiKey) {
-    //   return res
-    //     .status(400)
-    //     .send(sendResponse(false, null, "Missing Shopify API key"));
-    // }
-    // if (!getApiToken) {
-    //   return res
-    //     .status(400)
-    //     .send(sendResponse(false, null, "Missing Shopify API token"));
-    // }
-    if (!priceRuleId) {
-      return res
-        .status(400)
-        .send(
-          sendResponse(
-            false,
-            null,
-            "Missing Price Rule Id in the Parameters of the Request}"
-          )
-        );
-    }
-
-    // const priceRulesUrl = `https://${getShopName}.myshopify.com/admin/api/2024-07/price_rules/${priceRuleId}`;
-    const priceRulesUrl = `https://${process.env.API_KEY}:${process.env.API_PASSWORD}@${process.env.SHOP_NAME}.myshopify.com/admin/api/2024-07/price_rules.json?id=${priceRuleId}`;
-    const priceRulesResponse = await axios.get(priceRulesUrl, {
-      headers: {
-        "Content-Type": "application/json",
-      },
-    });
-
-    console.log("Price rule retrieved:", priceRulesResponse.data);
-    res
-      .status(200)
-      .send(
-        sendResponse(
-          true,
-          priceRulesResponse.data,
-          "Price rule Retrieved Successfully"
-        )
-      );
-  } catch (error) {
-    res
-      .status(500)
-      .send(
-        sendResponse(
-          false,
-          null,
-          "Might be Internal Server error, failed to get price rules",
-          error.message
-        )
-      );
-  }
-});
 app.get("/get-discounts", authMiddleware, async (req, res) => {
   try {
     const getShopName = req.headers["shop-name"];
@@ -209,6 +145,71 @@ app.get("/get-discounts", authMiddleware, async (req, res) => {
           false,
           null,
           "Might be Internal Server error, failed to get discount codes.",
+          error.message
+        )
+      );
+  }
+});
+app.get("/get-price_rule/:id", authMiddleware, async (req, res) => {
+  try {
+    const getShopName = req.headers["shop-name"];
+    const getApiKey = req.headers["shopify-api-key"];
+    const getApiToken = req.headers["shopify-api-token"];
+    const priceRuleId = req.params.id;
+
+    if (!getShopName) {
+      return res
+        .status(400)
+        .send(sendResponse(false, null, "Missing Shopify Store/Shop name"));
+    }
+    if (!getApiKey) {
+      return res
+        .status(400)
+        .send(sendResponse(false, null, "Missing Shopify API key"));
+    }
+    if (!getApiToken) {
+      return res
+        .status(400)
+        .send(sendResponse(false, null, "Missing Shopify API token"));
+    }
+    if (!priceRuleId) {
+      return res
+        .status(400)
+        .send(
+          sendResponse(
+            false,
+            null,
+            "Missing Price Rule Id in the Parameters of the Request}"
+          )
+        );
+    }
+
+    // const priceRulesUrl = `https://${getShopName}.myshopify.com/admin/api/2024-07/price_rules/${priceRuleId}`;
+    const priceRulesUrl = `https://${getApiKey}:${getApiToken}@${getShopName}.myshopify.com/admin/api/2024-07/price_rules.json?id=${priceRuleId}`;
+    const priceRulesResponse = await axios.get(priceRulesUrl, {
+      headers: {
+        "Content-Type": "application/json",
+      },
+    });
+
+    console.log("Price rule retrieved:", priceRulesResponse.data);
+    res
+      .status(200)
+      .send(
+        sendResponse(
+          true,
+          priceRulesResponse.data,
+          "Price rule Retrieved Successfully"
+        )
+      );
+  } catch (error) {
+    res
+      .status(500)
+      .send(
+        sendResponse(
+          false,
+          null,
+          "Might be Internal Server error, failed to get price rules",
           error.message
         )
       );
