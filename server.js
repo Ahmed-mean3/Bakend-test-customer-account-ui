@@ -59,9 +59,12 @@ app.get("/", (req, res) => {
 
 app.get("/get-discounts", authMiddleware, async (req, res) => {
   try {
+    let { page, limit } = req.query;
     const getShopName = req.headers["shop-name"];
     const getApiKey = req.headers["shopify-api-key"];
     const getApiToken = req.headers["shopify-api-token"];
+    let link;
+    if (!limit) limit = 50;
     if (!getShopName) {
       return res
         .status(400)
@@ -77,8 +80,13 @@ app.get("/get-discounts", authMiddleware, async (req, res) => {
         .status(400)
         .send(sendResponse(false, null, "Missing Shopify API token"));
     }
+    // if (!page) page = 1;
 
-    const priceRulesUrl = `https://${getShopName}.myshopify.com/admin/api/2024-07/price_rules.json?fields=id,title`;
+    // Fetch all price rules and filter by title starting with "CC_"
+    let priceRulesUrl = `https://${getShopName}.myshopify.com/admin/api/2024-07/price_rules.json?limit=${limit}`;
+    if (page) {
+      priceRulesUrl += `&page_info=${page}`;
+    }
     const priceRulesResponse = await axios.get(priceRulesUrl, {
       headers: {
         "Content-Type": "application/json",
@@ -87,57 +95,78 @@ app.get("/get-discounts", authMiddleware, async (req, res) => {
         ).toString("base64")}`,
       },
     });
+    let filteredPriceRules = [];
 
-    // const priceRuleIds = priceRulesResponse.data.price_rules.map(
-    //   (rule) => rule.id
-    // );
-    const priceRuleIds = priceRulesResponse.data.price_rules.reduce(
-      (acc, rule) => {
-        if (rule.title.startsWith("CC_")) {
-          acc.push(rule.id);
-        }
-        return acc;
-      },
-      []
-    );
-
-    // Fetch all discount codes for all price rules in one request
-    const allDiscountPromises = priceRuleIds.map((id) =>
-      axios.get(
-        `https://${getShopName}.myshopify.com/admin/api/2024-07/price_rules/${id}/discount_codes.json`,
-        {
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Basic ${Buffer.from(
-              `${getApiKey}:${getApiToken}`
-            ).toString("base64")}`,
+    for (const rule of priceRulesResponse.data.price_rules) {
+      if (rule.title.startsWith("CC_")) {
+        filteredPriceRules.push({
+          code: rule.title,
+          usage_count: rule.usage_count,
+          priceRuleDetails: {
+            id: rule.id,
+            value_type: rule.value_type,
+            value: rule.value,
+            customer_selection: rule.customer_selection,
+            target_type: rule.target_type,
+            target_selection: rule.target_selection,
+            allocation_method: rule.allocation_method,
+            allocation_limit: rule.allocation_limit,
+            once_per_customer: rule.once_per_customer,
+            usage_limit: rule.usage_limit,
+            starts_at: rule.starts_at,
+            ends_at: rule.ends_at,
+            created_at: rule.created_at,
+            updated_at: rule.updated_at,
+            entitled_product_ids: rule.entitled_product_ids,
+            entitled_variant_ids: rule.entitled_variant_ids,
+            entitled_collection_ids: rule.entitled_collection_ids,
+            entitled_country_ids: rule.entitled_country_ids,
+            prerequisite_product_ids: rule.prerequisite_product_ids,
+            prerequisite_variant_ids: rule.prerequisite_variant_ids,
+            prerequisite_collection_ids: rule.prerequisite_collection_ids,
+            customer_segment_prerequisite_ids:
+              rule.customer_segment_prerequisite_ids,
+            prerequisite_customer_ids: rule.prerequisite_customer_ids,
+            prerequisite_subtotal_range: rule.prerequisite_subtotal_range,
+            prerequisite_quantity_range: rule.prerequisite_quantity_range,
+            prerequisite_shipping_price_range:
+              rule.prerequisite_shipping_price_range,
+            prerequisite_to_entitlement_quantity_ratio:
+              rule.prerequisite_to_entitlement_quantity_ratio,
+            prerequisite_to_entitlement_purchase:
+              rule.prerequisite_to_entitlement_purchase,
+            title: rule.title,
+            admin_graphql_api_id: rule.admin_graphql_api_id,
           },
-        }
-      )
-    );
+        });
+      }
+    }
 
-    // Wait for all requests to finish
-    const allDiscountResponses = await Promise.all(allDiscountPromises);
-
-    // Combine and filter discount codes in a single step
-    const filteredDiscounts = allDiscountResponses.flatMap(
-      (response) => response.data.discount_codes
-    );
-    console.log(
-      "discounts->>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>",
-      filteredDiscounts
-    );
+    link = priceRulesResponse.headers.link.split("&page_info=")[1];
+    link = link.split(">")[0];
+    console.log("discountsssss", link);
     res
       .status(200)
       .send(
         sendResponse(
           true,
-          filteredDiscounts,
-          "Discounts Retrieved Successfully"
+          filteredPriceRules,
+          "Discounts Retrieved Successfully",
+          "",
+          link
         )
       );
   } catch (error) {
-    console.log("->>>>>>>>>>>>>>>>>>>>", error);
+    // console.log("->>>>>>>>>>>>>>>>>>>>", error);
+    let errorMessage = "An unexpected error occurred";
+    if (error.response && error.response.data && error.response.data.errors) {
+      // Extract and format dynamic errors
+      errorMessage = Object.entries(error.response.data.errors)
+        .map(([key, messages]) => `${key}: ${messages}`)
+        .join("\n");
+    }
+    console.log("error", errorMessage);
+
     res
       .status(500)
       .send(
