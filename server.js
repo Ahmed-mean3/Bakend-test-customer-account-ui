@@ -179,6 +179,114 @@ app.get("/get-discounts", authMiddleware, async (req, res) => {
       );
   }
 });
+app.get("/get-products", authMiddleware, async (req, res) => {
+  try {
+    let { page, limit, isCollection } = req.query;
+    const getShopName = req.headers["shop-name"];
+    const getApiKey = req.headers["shopify-api-key"];
+    const getApiToken = req.headers["shopify-api-token"];
+    let productsResponse;
+    let productsUrl;
+    let link;
+    if (!limit) {
+      limit = 50;
+    }
+    if (!isCollection) {
+      isCollection = false;
+    }
+    if (!getShopName) {
+      return res
+        .status(400)
+        .send(sendResponse(false, null, "Missing Shopify Store/Shop name"));
+    }
+    if (!getApiKey) {
+      return res
+        .status(400)
+        .send(sendResponse(false, null, "Missing Shopify API key"));
+    }
+    if (!getApiToken) {
+      return res
+        .status(400)
+        .send(sendResponse(false, null, "Missing Shopify API token"));
+    }
+
+    if (!isCollection) {
+      productsUrl = `https://${getShopName}.myshopify.com/admin/api/2024-07/products.json?limit=${limit}`;
+      // let productsUrl = `https://${getApiKey}:${getApiToken}@${getShopName}.myshopify.com/admin/api/2024-07/products.json`;
+      if (page) {
+        productsUrl += `&page_info=${page}`;
+      }
+      productsResponse = await axios.get(productsUrl, {
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Basic ${Buffer.from(
+            `${getApiKey}:${getApiToken}`
+          ).toString("base64")}`,
+        },
+      });
+      // console.log("products retrieved:", productsResponse.data);
+      link = productsResponse.headers?.link?.split("&page_info=")[1];
+      link = link?.split(">")[0];
+      console.log("yooo", link);
+    } else {
+      productsUrl = `https://${getShopName}.myshopify.com/admin/api/2024-07/collections/${isCollection}.json`;
+      link = null;
+      const collectionResponse = await axios.get(productsUrl, {
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Basic ${Buffer.from(
+            `${getApiKey}:${getApiToken}`
+          ).toString("base64")}`,
+        },
+      });
+      console.log("collection retrieved:", collectionResponse.data.collection);
+      const collectionBaseProductUrl = `https://${getShopName}.myshopify.com/admin/api/2024-07/collections/${isCollection}/products.json?limit=${limit}`;
+      if (page) {
+        collectionBaseProductUrl += `&page_info=${page}`;
+      }
+      productsResponse = await axios.get(collectionBaseProductUrl, {
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Basic ${Buffer.from(
+            `${getApiKey}:${getApiToken}`
+          ).toString("base64")}`,
+        },
+      });
+      link = productsResponse.headers?.link?.split("&page_info=")[1];
+      link = link?.split(">")[0];
+      console.log(
+        "collection based products retrieved:",
+        productsResponse.data
+      );
+    }
+
+    // console.log("productssss link", link);
+    res
+      .status(200)
+      .send(
+        sendResponse(
+          true,
+          productsResponse.data,
+          `${
+            isCollection ? "Collection Based Products " : "Products"
+          } Retreived Successfully`,
+          "",
+          link
+        )
+      );
+  } catch (error) {
+    res
+      .status(500)
+      .send(
+        sendResponse(
+          false,
+          null,
+          "Might be Internal Server error, failed to get products or collection",
+          error.message
+        )
+      );
+  }
+});
 app.get("/get-price_rule/:id", authMiddleware, async (req, res) => {
   try {
     const getShopName = req.headers["shop-name"];
