@@ -29,7 +29,7 @@ const sendResponse = (status, data, message, error, page, limit) => {
 const authMiddleware = (req, res, next) => {
   // Check for the presence of API access key in headers
   const apiKey = req.headers["api-key"];
-  console.log("matchup", apiKey === process.env.SECURE_KEY);
+  // console.log("matchup", apiKey === process.env.SECURE_KEY);
   if (apiKey !== process.env.SECURE_KEY) {
     return res
       .status(401)
@@ -52,11 +52,8 @@ app.use(cors());
 app.get("/", (req, res) => {
   res.send("Server Started for test cutomer account ui backend.");
 });
-// // Make sure to include this route to handle other routes
-// app.get("*", (req, res) => {
-//   res.status(404).send("Route Not Found");
-// });
 
+//get discounts with pagination
 app.get("/get-discounts", authMiddleware, async (req, res) => {
   try {
     let { page, limit } = req.query;
@@ -141,10 +138,38 @@ app.get("/get-discounts", authMiddleware, async (req, res) => {
         });
       }
     }
+    let prevPage = null,
+      forwardPage = null;
 
-    link = priceRulesResponse.headers.link.split("&page_info=")[1];
-    link = link.split(">")[0];
-    console.log("discountsssss", link);
+    // Find all occurrences of 'page_info'
+    const occurrences = priceRulesResponse.headers.link.match(/page_info/g);
+
+    // Check if 'page_info' appears more than once
+    if (occurrences && occurrences.length > 1) {
+      console.log("forward and backward block");
+      prevPage = priceRulesResponse.headers.link?.split("&page_info=")[1];
+      prevPage = prevPage?.split(">")[0];
+      forwardPage =
+        priceRulesResponse.headers.link?.split(`rel="previous",`)[1];
+      forwardPage = forwardPage?.split("&page_info=")[1];
+      forwardPage = forwardPage?.split(">")[0];
+    } else {
+      console.log("only forward block");
+      forwardPage = priceRulesResponse.headers.link?.split("&page_info=")[1];
+      forwardPage = forwardPage?.split(">")[0];
+    }
+
+    link = {
+      prevPage,
+      forwardPage,
+    };
+    // console.log(
+    //   "prev",
+    //   prevPage,
+    //   "forward",
+    //   forwardPage,
+    //   priceRulesResponse.headers.link
+    // );
     res
       .status(200)
       .send(
@@ -179,6 +204,117 @@ app.get("/get-discounts", authMiddleware, async (req, res) => {
       );
   }
 });
+
+//get all products or single collection with pagination
+app.get("/get-collections", authMiddleware, async (req, res) => {
+  try {
+    let { page, limit } = req.query;
+    const getShopName = req.headers["shop-name"];
+    const getApiKey = req.headers["shopify-api-key"];
+    const getApiToken = req.headers["shopify-api-token"];
+    let collectionResponse, _collectionReponse;
+    let collectionUrl, _collectionUrl;
+    let allCollections = [];
+    let prevPage = null,
+      forwardPage = null;
+
+    let link;
+    if (!limit) limit = 50;
+
+    if (!getShopName) {
+      return res
+        .status(400)
+        .send(sendResponse(false, null, "Missing Shopify Store/Shop name"));
+    }
+    if (!getApiKey) {
+      return res
+        .status(400)
+        .send(sendResponse(false, null, "Missing Shopify API key"));
+    }
+    if (!getApiToken) {
+      return res
+        .status(400)
+        .send(sendResponse(false, null, "Missing Shopify API token"));
+    }
+
+    collectionUrl = `https://${getShopName}.myshopify.com/admin/api/2024-07/custom_collections.json?limit=${limit}`;
+    // let collectionUrl = `https://${getApiKey}:${getApiToken}@${getShopName}.myshopify.com/admin/api/2024-07/products.json`;
+    if (page) {
+      collectionUrl += `&page_info=${page}`;
+    }
+    collectionResponse = await axios.get(collectionUrl, {
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Basic ${Buffer.from(
+          `${getApiKey}:${getApiToken}`
+        ).toString("base64")}`,
+      },
+    });
+    _collectionUrl = `https://${getShopName}.myshopify.com/admin/api/2024-07/smart_collections.json?limit=${limit}`;
+    // let collectionUrl = `https://${getApiKey}:${getApiToken}@${getShopName}.myshopify.com/admin/api/2024-07/products.json`;
+    if (page) {
+      _collectionUrl += `&page_info=${page}`;
+    }
+    _collectionReponse = await axios.get(_collectionUrl, {
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Basic ${Buffer.from(
+          `${getApiKey}:${getApiToken}`
+        ).toString("base64")}`,
+      },
+    });
+
+    allCollections = [
+      ...collectionResponse.data.custom_collections,
+      ..._collectionReponse.data.smart_collections,
+    ];
+    // console.log("data", _collectionReponse.data);
+    const occurrences = collectionResponse?.headers?.link?.match(/page_info/g);
+
+    if (occurrences && occurrences.length > 1) {
+      console.log("forward and backward block");
+      prevPage = collectionResponse.headers.link?.split("&page_info=")[1];
+      prevPage = prevPage?.split(">")[0];
+      forwardPage =
+        collectionResponse.headers.link?.split(`rel="previous",`)[1];
+      forwardPage = forwardPage?.split("&page_info=")[1];
+      forwardPage = forwardPage?.split(">")[0];
+    } else {
+      console.log("only forward block");
+      forwardPage = collectionResponse.headers.link?.split("&page_info=")[1];
+      forwardPage = forwardPage?.split(">")[0];
+    }
+
+    link = {
+      prevPage,
+      forwardPage,
+    };
+    res
+      .status(200)
+      .send(
+        sendResponse(
+          true,
+          allCollections,
+          `All Collections Retreived Successfully`,
+          "",
+          link
+        )
+      );
+  } catch (error) {
+    console.log("error what happening", error);
+    res
+      .status(500)
+      .send(
+        sendResponse(
+          false,
+          null,
+          "Might be Internal Server error, failed to get products or collection",
+          error.message
+        )
+      );
+  }
+});
+//get all products or single collection with pagination
 app.get("/get-products", authMiddleware, async (req, res) => {
   try {
     let { page, limit, isCollection } = req.query;
@@ -227,11 +363,11 @@ app.get("/get-products", authMiddleware, async (req, res) => {
       // console.log("products retrieved:", productsResponse.data);
       link = productsResponse.headers?.link?.split("&page_info=")[1];
       link = link?.split(">")[0];
-      console.log("yooo", link);
+      // console.log("yooo", link);
     } else {
       productsUrl = `https://${getShopName}.myshopify.com/admin/api/2024-07/collections/${isCollection}.json`;
       link = null;
-      const collectionResponse = await axios.get(productsUrl, {
+      productsResponse = await axios.get(productsUrl, {
         headers: {
           "Content-Type": "application/json",
           Authorization: `Basic ${Buffer.from(
@@ -239,19 +375,19 @@ app.get("/get-products", authMiddleware, async (req, res) => {
           ).toString("base64")}`,
         },
       });
-      console.log("collection retrieved:", collectionResponse.data.collection);
-      const collectionBaseProductUrl = `https://${getShopName}.myshopify.com/admin/api/2024-07/collections/${isCollection}/products.json?limit=${limit}`;
-      if (page) {
-        collectionBaseProductUrl += `&page_info=${page}`;
-      }
-      productsResponse = await axios.get(collectionBaseProductUrl, {
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Basic ${Buffer.from(
-            `${getApiKey}:${getApiToken}`
-          ).toString("base64")}`,
-        },
-      });
+      console.log("collection retrieved:", productsResponse.data.collection);
+      // const collectionBaseProductUrl = `https://${getShopName}.myshopify.com/admin/api/2024-07/collections/${isCollection}/products.json?limit=${limit}`;
+      // if (page) {
+      //   collectionBaseProductUrl += `&page_info=${page}`;
+      // }
+      // productsResponse = await axios.get(collectionBaseProductUrl, {
+      //   headers: {
+      //     "Content-Type": "application/json",
+      //     Authorization: `Basic ${Buffer.from(
+      //       `${getApiKey}:${getApiToken}`
+      //     ).toString("base64")}`,
+      //   },
+      // });
       link = productsResponse.headers?.link?.split("&page_info=")[1];
       link = link?.split(">")[0];
       console.log(
@@ -260,7 +396,6 @@ app.get("/get-products", authMiddleware, async (req, res) => {
       );
     }
 
-    // console.log("productssss link", link);
     res
       .status(200)
       .send(
@@ -275,6 +410,7 @@ app.get("/get-products", authMiddleware, async (req, res) => {
         )
       );
   } catch (error) {
+    console.log("error what happening", error);
     res
       .status(500)
       .send(
@@ -287,6 +423,8 @@ app.get("/get-products", authMiddleware, async (req, res) => {
       );
   }
 });
+
+//get price rule (single discount detail)
 app.get("/get-price_rule/:id", authMiddleware, async (req, res) => {
   try {
     const getShopName = req.headers["shop-name"];
@@ -352,6 +490,8 @@ app.get("/get-price_rule/:id", authMiddleware, async (req, res) => {
       );
   }
 });
+
+//add a discount
 app.post("/add-discount-code", authMiddleware, async (req, res) => {
   try {
     const getShopName = req.headers["shop-name"];
@@ -386,7 +526,6 @@ app.post("/add-discount-code", authMiddleware, async (req, res) => {
           "target_selection",
           "allocation_method",
           "starts_at",
-          "entitled_product_ids",
         ];
         break;
       case "order":
@@ -426,6 +565,16 @@ app.post("/add-discount-code", authMiddleware, async (req, res) => {
         missingFields: missingFields,
       });
     }
+    if (
+      !price_rule.entitled_product_ids &&
+      !price_rule.entitled_collection_ids
+    ) {
+      return res.status(400).json({
+        message:
+          "at least collection ids or product ids required to create discount",
+        missingFields: ["entitled_collection_ids", "entitled_product_ids"],
+      });
+    }
 
     // Construct the price rule data
     const priceRuleData = {
@@ -441,6 +590,7 @@ app.post("/add-discount-code", authMiddleware, async (req, res) => {
         ends_at: price_rule.ends_at || undefined,
         ...(discount_type === "product" && {
           entitled_product_ids: price_rule.entitled_product_ids || [],
+          entitled_collection_ids: price_rule.entitled_collection_ids || [],
           prerequisite_product_ids: price_rule.prerequisite_product_ids || [],
         }),
         ...(discount_type === "product" &&
@@ -529,6 +679,7 @@ app.post("/add-discount-code", authMiddleware, async (req, res) => {
       );
   }
 });
+
 app.listen(PORT, () => {
   console.log(`Testing shop Middleware server running on port ${PORT}`);
 });
