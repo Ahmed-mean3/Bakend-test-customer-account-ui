@@ -204,7 +204,6 @@ app.get("/get-discounts", authMiddleware, async (req, res) => {
       );
   }
 });
-
 //get all products or single collection with pagination
 app.get("/get-collections", authMiddleware, async (req, res) => {
   try {
@@ -423,7 +422,79 @@ app.get("/get-products", authMiddleware, async (req, res) => {
       );
   }
 });
+//get all products or single collection with pagination
+app.get("/get-customers", authMiddleware, async (req, res) => {
+  try {
+    let { page, limit } = req.query;
+    const getShopName = req.headers["shop-name"];
+    const getApiKey = req.headers["shopify-api-key"];
+    const getApiToken = req.headers["shopify-api-token"];
+    let customersResponse;
+    let cutomersUrl;
+    let link;
+    if (!limit) {
+      limit = 50;
+    }
 
+    if (!getShopName) {
+      return res
+        .status(400)
+        .send(sendResponse(false, null, "Missing Shopify Store/Shop name"));
+    }
+    if (!getApiKey) {
+      return res
+        .status(400)
+        .send(sendResponse(false, null, "Missing Shopify API key"));
+    }
+    if (!getApiToken) {
+      return res
+        .status(400)
+        .send(sendResponse(false, null, "Missing Shopify API token"));
+    }
+
+    cutomersUrl = `https://${getShopName}.myshopify.com/admin/api/2024-07/customers.json?limit=${limit}`;
+    // let cutomersUrl = `https://${getApiKey}:${getApiToken}@${getShopName}.myshopify.com/admin/api/2024-07/products.json`;
+    if (page) {
+      cutomersUrl += `&page_info=${page}`;
+    }
+    customersResponse = await axios.get(cutomersUrl, {
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Basic ${Buffer.from(
+          `${getApiKey}:${getApiToken}`
+        ).toString("base64")}`,
+      },
+    });
+    // console.log("products retrieved:", customersResponse.data);
+    link = customersResponse.headers?.link?.split("&page_info=")[1];
+    link = link?.split(">")[0];
+    // console.log("yooo", link);
+
+    res
+      .status(200)
+      .send(
+        sendResponse(
+          true,
+          customersResponse.data,
+          `Customers Retreived Successfully`,
+          "",
+          link
+        )
+      );
+  } catch (error) {
+    console.log("error what happening", error);
+    res
+      .status(500)
+      .send(
+        sendResponse(
+          false,
+          null,
+          "Might be Internal Server error, failed to get products or collection",
+          error.message
+        )
+      );
+  }
+});
 //get price rule (single discount detail)
 app.get("/get-price_rule/:id", authMiddleware, async (req, res) => {
   try {
@@ -490,7 +561,6 @@ app.get("/get-price_rule/:id", authMiddleware, async (req, res) => {
       );
   }
 });
-
 //add a discount
 app.post("/add-discount-code", authMiddleware, async (req, res) => {
   try {
@@ -575,6 +645,20 @@ app.post("/add-discount-code", authMiddleware, async (req, res) => {
         missingFields: ["entitled_collection_ids", "entitled_product_ids"],
       });
     }
+    if (
+      price_rule.customer_selection === "prerequisite" &&
+      !price_rule.prerequisite_customer_ids &&
+      !price_rule.customer_segment_prerequisite_ids
+    ) {
+      return res.status(400).json({
+        message:
+          "at least prerequisite customer ids or customer_segment prerequisite ids required to create discount",
+        missingFields: [
+          "prerequisite_customer_ids",
+          "customer_segment_prerequisite_ids",
+        ],
+      });
+    }
 
     // Construct the price rule data
     const priceRuleData = {
@@ -589,6 +673,14 @@ app.post("/add-discount-code", authMiddleware, async (req, res) => {
         starts_at: price_rule.starts_at,
         ends_at: price_rule.ends_at || undefined,
         ...(discount_type === "product" && {
+          prerequisite_subtotal_range:
+            price_rule.prerequisite_subtotal_range || {},
+        }),
+        ...(discount_type === "product" && {
+          prerequisite_to_entitlement_quantity_ratio:
+            price_rule.prerequisite_to_entitlement_quantity_ratio || {},
+        }),
+        ...(discount_type === "product" && {
           entitled_product_ids: price_rule.entitled_product_ids || [],
           entitled_collection_ids: price_rule.entitled_collection_ids || [],
           prerequisite_product_ids: price_rule.prerequisite_product_ids || [],
@@ -601,6 +693,16 @@ app.post("/add-discount-code", authMiddleware, async (req, res) => {
             prerequisite_to_entitlement_quantity_ratio:
               price_rule.prerequisite_to_entitlement_quantity_ratio,
           }),
+        ...(price_rule.customer_selection === "prerequisite" &&
+          price_rule.prerequisite_customer_ids && {
+            prerequisite_customer_ids:
+              price_rule.prerequisite_customer_ids || [],
+          }),
+        ...(price_rule.customer_selection === "prerequisite" &&
+          price_rule.customer_segment_prerequisite_ids && {
+            customer_segment_prerequisite_ids:
+              price_rule.customer_segment_prerequisite_ids || [],
+          }),
         ...(discount_type === "order" &&
           price_rule.hasOwnProperty("prerequisite_subtotal_range") &&
           price_rule.prerequisite_subtotal_range && {
@@ -612,6 +714,8 @@ app.post("/add-discount-code", authMiddleware, async (req, res) => {
             price_rule.prerequisite_shipping_price_range || undefined,
         }),
         allocation_limit: price_rule.allocation_limit || undefined,
+        usage_limit: price_rule.usage_limit || undefined,
+        once_per_customer: price_rule.once_per_customer || false,
       },
     };
 
