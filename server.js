@@ -733,7 +733,7 @@ app.post("/add-discount-code", authMiddleware, async (req, res) => {
     console.log("Price rule created:", response.data.price_rule.id);
 
     // Create the discount code
-    const discountCodesUrl = `https://${process.env.SHOP_NAME}.myshopify.com/admin/api/2024-07/price_rules/${response.data.price_rule.id}/discount_codes.json`;
+    const discountCodesUrl = `https://${getShopName}.myshopify.com/admin/api/2024-07/price_rules/${response.data.price_rule.id}/discount_codes.json`;
     const discountCodeData = {
       discount_code: {
         code: "CC_" + discount_code,
