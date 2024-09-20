@@ -636,6 +636,8 @@ app.post("/add-discount-code", authMiddleware, async (req, res) => {
       });
     }
     if (
+      discount_type !== "shipping" &&
+      discount_type !== "order" &&
       !price_rule.entitled_product_ids &&
       !price_rule.entitled_collection_ids
     ) {
@@ -643,6 +645,19 @@ app.post("/add-discount-code", authMiddleware, async (req, res) => {
         message:
           "at least collection ids or product ids required to create discount",
         missingFields: ["entitled_collection_ids", "entitled_product_ids"],
+      });
+    }
+
+    if (
+      discount_type === "order" &&
+      price_rule.target_type === "shipping_line" &&
+      price_rule.target_selection === "entitled" &&
+      !price_rule.entitled_country_ids
+    ) {
+      return res.status(400).json({
+        message:
+          "A list of IDs of shipping countries that will be entitled to the discount. It can be used only with target_type set to shipping_line and target_selection set to entitled",
+        missingFields: ["entitled_country_ids"],
       });
     }
     if (
@@ -659,7 +674,20 @@ app.post("/add-discount-code", authMiddleware, async (req, res) => {
         ],
       });
     }
-
+    if (
+      price_rule.customer_selection === "prerequisite" &&
+      !price_rule.prerequisite_customer_ids &&
+      !price_rule.customer_segment_prerequisite_ids
+    ) {
+      return res.status(400).json({
+        message:
+          "at least prerequisite customer ids or customer_segment prerequisite ids required to create discount",
+        missingFields: [
+          "prerequisite_customer_ids",
+          "customer_segment_prerequisite_ids",
+        ],
+      });
+    }
     // Construct the price rule data
     const priceRuleData = {
       price_rule: {
@@ -712,6 +740,25 @@ app.post("/add-discount-code", authMiddleware, async (req, res) => {
         ...(discount_type === "shipping" && {
           prerequisite_shipping_price_range:
             price_rule.prerequisite_shipping_price_range || undefined,
+        }),
+        ...(discount_type === "order" &&
+          price_rule.target_type === "shipping_line" &&
+          price_rule.target_selection === "entitled" && {
+            entitled_country_ids: price_rule.entitled_country_ids,
+          }),
+        ...(discount_type === "order" && {
+          entitled_product_ids: price_rule.entitled_product_ids || [],
+          prerequisite_shipping_price_range:
+            price_rule.prerequisite_shipping_price_range || {},
+          // hasExcludeShippingRatesOver:
+          //   price_rule.hasExcludeShippingRatesOver || {},
+          // excludeShippingRatesOver: price_rule.excludeShippingRatesOver || {},
+          hasExcludeShippingRatesOver: {
+            value: true,
+          },
+          excludeShippingRatesOver: {
+            value: "21.00",
+          },
         }),
         allocation_limit: price_rule.allocation_limit || undefined,
         usage_limit: price_rule.usage_limit || undefined,
