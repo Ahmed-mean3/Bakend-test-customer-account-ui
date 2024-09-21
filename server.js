@@ -108,7 +108,6 @@ app.get("/get-discounts", authMiddleware, async (req, res) => {
             target_selection: rule.target_selection,
             allocation_method: rule.allocation_method,
             allocation_limit: rule.allocation_limit,
-            once_per_customer: rule.once_per_customer,
             usage_limit: rule.usage_limit,
             starts_at: rule.starts_at,
             ends_at: rule.ends_at,
@@ -763,9 +762,16 @@ app.post("/add-discount-code", authMiddleware, async (req, res) => {
         allocation_limit: price_rule.allocation_limit || undefined,
         usage_limit: price_rule.usage_limit || undefined,
         once_per_customer: price_rule.once_per_customer || false,
+        combinesWithProductDiscounts:
+          price_rule.combinesWithProductDiscounts || false,
+        combinesWithOrderDiscounts: {
+          value: price_rule.combinesWithOrderDiscounts || false,
+        },
+        combinesWithShippingDiscounts:
+          price_rule.combinesWithShippingDiscounts || false,
       },
     };
-
+    console.log("paylod sending to post api", priceRuleData);
     // Create the price rule
     const priceRulesUrl = `https://${getShopName}.myshopify.com/admin/api/2024-07/price_rules.json`;
     const response = await axios.post(priceRulesUrl, priceRuleData, {
