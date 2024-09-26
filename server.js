@@ -711,6 +711,8 @@ app.post("/add-discount-code", authMiddleware, async (req, res) => {
           entitled_product_ids: price_rule.entitled_product_ids || [],
           entitled_collection_ids: price_rule.entitled_collection_ids || [],
           prerequisite_product_ids: price_rule.prerequisite_product_ids || [],
+          prerequisite_collection_ids:
+            price_rule.prerequisite_collection_ids || [],
         }),
         ...(discount_type === "product" &&
           price_rule.hasOwnProperty(
